@@ -11,11 +11,11 @@ interface AuthState {
   startAuth: () => void;
   setResult: (
     result: 'success' | 'fail',
-    matchedUser?: string,
+    matchedUser?: string | null,
     confidence?: number,
     duration?: number,
     livenessScore?: number,
-    error?: string
+    error?: string | null
   ) => void;
   reset: () => void;
 }

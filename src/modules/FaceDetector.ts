@@ -53,6 +53,8 @@ export interface FaceDetectionResult {
   confidence: number;
   /** Inference time in milliseconds */
   inferenceTimeMs: number;
+  /** Raw 6 keypoints if available from BlazeFace model */
+  _rawKeypoints?: Point[];
 }
 
 /** Native module bridge interface. */
@@ -73,7 +75,7 @@ interface IFaceDetectorNative {
 class MockFaceDetector implements IFaceDetectorNative {
   private _initialized = false;
 
-  async initialize(_modelPath: string, _inputSize: number): Promise<boolean> {
+  async initialize(_modelPath: string, _inputSize?: number): Promise<boolean> {
     this._initialized = true;
     console.log('[FaceDetector] Mock initialised');
     return true;

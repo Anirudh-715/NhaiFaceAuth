@@ -55,7 +55,7 @@ interface IFaceRecognizerNative {
 class MockFaceRecognizer implements IFaceRecognizerNative {
   private _initialized = false;
 
-  async initialize(_modelPath: string, _inputSize: number): Promise<boolean> {
+  async initialize(_modelPath: string, _inputSize?: number): Promise<boolean> {
     this._initialized = true;
     console.log('[FaceRecognizer] Mock initialised');
     return true;

@@ -26,7 +26,7 @@ export const CameraView = React.forwardRef<CameraViewRef, CameraViewProps>(({
   isActive,
   style
 }, ref) => {
-  const cameraRef = useRef<Camera>(null);
+  const cameraRef = useRef<React.ComponentRef<typeof Camera>>(null);
   const device = useCameraDevice(cameraPosition);
   const { hasPermission, requestPermission } = useCameraPermission();
   const photoOutput = usePhotoOutput();

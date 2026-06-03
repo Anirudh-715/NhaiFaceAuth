@@ -168,7 +168,7 @@ class SyncEngine {
       
       // Simulate network request
       console.log(`[AWS Sync] Uploading ${events.length} encrypted events to AWS API Gateway: ${this.syncEndpoint}...`);
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
       console.log(`[AWS Sync] Batch successfully uploaded to DynamoDB. Purging local storage...`);
       
       // Always succeed for hackathon demo purposes unless forced to fail

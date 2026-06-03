@@ -10,6 +10,7 @@ import {
   View,
   TouchableOpacity,
   Dimensions,
+  Platform,
 } from 'react-native';
 import Animated, {
   FadeIn,
@@ -83,6 +84,21 @@ export const AuthScreen: React.FC = () => {
 
   // Session timeout
   const [timeRemaining, setTimeRemaining] = useState(AUTH_TIMEOUT_MS / 1000);
+
+  // Dynamic liveness challenge & HUD states
+  const [currentChallenge, setCurrentChallenge] = useState<'left' | 'right' | 'up' | 'center'>('center');
+  const currentChallengeRef = useRef<'left' | 'right' | 'up' | 'center'>('center');
+  const setCurrentChallengeSync = (c: 'left' | 'right' | 'up' | 'center') => {
+    currentChallengeRef.current = c;
+    setCurrentChallenge(c);
+  };
+
+  const [showHUD, setShowHUD] = useState(false);
+  const [hudPose, setHudPose] = useState<{ yaw: number; pitch: number; roll: number } | null>(null);
+  const [hudJitter, setHudJitter] = useState<number>(0);
+  const [hudChallengeScore, setHudChallengeScore] = useState<number>(0);
+  const [hudFrameCount, setHudFrameCount] = useState<number>(0);
+  const [hudPoseVariance, setHudPoseVariance] = useState<number>(0);
 
   const startTimeRef = useRef<number>(0);
   const spoofCheckedRef = useRef(false);
@@ -224,6 +240,12 @@ export const AuthScreen: React.FC = () => {
   const handleStartAuth = useCallback(() => {
     if (lockoutUntil && Date.now() < lockoutUntil) return;
     triggerFeedback.click();
+    
+    // Select a random active challenge (excluding 'center' to force an active head turn)
+    const challenges: ('left' | 'right' | 'up')[] = ['left', 'right', 'up'];
+    const selected = challenges[Math.floor(Math.random() * challenges.length)];
+    setCurrentChallengeSync(selected);
+    
     setPhaseSync('scanning');
     setFaceDetected(false);
     setResult(null);
@@ -232,6 +254,12 @@ export const AuthScreen: React.FC = () => {
     spoofCheckedRef.current = false;
     isRunningRef.current = true;
     livenessService.reset();
+    
+    // Clear HUD values
+    setHudPose(null);
+    setHudJitter(0);
+    setHudChallengeScore(0);
+    setHudFrameCount(0);
   }, [lockoutUntil]);
 
   // ── Main Frame Processing Loop ────────────────────────────────────────────
@@ -240,7 +268,7 @@ export const AuthScreen: React.FC = () => {
     if (phase !== 'scanning' && phase !== 'liveness') return;
 
     isRunningRef.current = true;
-    let timerId: NodeJS.Timeout;
+    let timerId: any;
 
     const processFrame = async () => {
       // ✅ Read from ref — always current, no stale closure
@@ -290,9 +318,8 @@ export const AuthScreen: React.FC = () => {
             }
             livenessService.addFrame(points, Date.now());
 
-            // ── Spoof Detection ─────────────────────────────
-            if (!spoofCheckedRef.current && livenessService.getFrameCount() >= SPOOF_MIN_FRAMES) {
-              spoofCheckedRef.current = true;
+            // ── Spoof Detection (Continuous check once buffer is stable) ─────────────────────────────
+            if (livenessService.getFrameCount() >= 12) {
               const spoofResult = livenessService.detectSpoof();
               if (spoofResult.isSpoof) {
                 isRunningRef.current = false;
@@ -309,17 +336,31 @@ export const AuthScreen: React.FC = () => {
               }
             }
 
-            // ── Blink Detection ─────────────────────────────
-            const blinkStatus = livenessService.detectBlink();
-            if (blinkStatus.detected) {
-              isRunningRef.current = false;
-              triggerFeedback.tick();
-              setPhaseSync('processing');
-              await performMatching(photoPath, detectResult.bbox);
-              return;
+            // Update HUD values
+            const latestPose = livenessService.getLatestPose();
+            if (latestPose) setHudPose(latestPose);
+            setHudFrameCount(livenessService.getFrameCount());
+
+            const spoofCheck = livenessService.detectSpoof();
+            setHudJitter(spoofCheck.signals.movementVariance);
+            setHudPoseVariance(spoofCheck.signals.poseVariance);
+
+            // ── Dynamic Challenge Evaluation ─────────────────────────────
+            if (phaseRef.current === 'liveness') {
+              const score = livenessService.estimateHeadPoseScore(currentChallengeRef.current);
+              setHudChallengeScore(score);
+
+              // Challenge passes when matched score reaches 0.8
+              if (score >= 0.8) {
+                isRunningRef.current = false;
+                triggerFeedback.tick();
+                setPhaseSync('processing');
+                await performMatching(photoPath, detectResult.bbox);
+                return;
+              }
             }
 
-            // ── Blink timeout fallback (20s in liveness phase) ──
+            // ── Liveness timeout fallback (20s in liveness phase) ──
             const livenessElapsed = Date.now() - startTimeRef.current;
             if (phaseRef.current === 'liveness' && livenessElapsed > 20_000) {
               // After 20s in liveness with no blink detected, proceed anyway
@@ -368,9 +409,34 @@ export const AuthScreen: React.FC = () => {
     setCameraPosition(prev => prev === 'front' ? 'back' : 'front');
   }, []);
 
+  const getChallengeLabel = () => {
+    switch (currentChallenge) {
+      case 'left': return 'Turn head left';
+      case 'right': return 'Turn head right';
+      case 'up': return 'Tilt head up';
+      case 'center': return 'Align face center';
+      default: return 'Perform action';
+    }
+  };
+
+  const getChallengeInstruction = () => {
+    if (phase === 'scanning') return 'Detecting face...';
+    if (phase === 'processing') return 'Verifying identity...';
+    if (phase === 'liveness') {
+      switch (currentChallenge) {
+        case 'left': return '← Turn your head LEFT';
+        case 'right': return 'Turn your head RIGHT →';
+        case 'up': return '↑ Tilt your head UP';
+        case 'center': return '• Look straight ahead';
+        default: return 'Align your face';
+      }
+    }
+    return '';
+  };
+
   const livenessSteps = [
-    { id: 'center', label: 'Look straight ahead', completed: phase !== 'scanning', active: phase === 'scanning' },
-    { id: 'blink', label: 'Blink naturally', completed: phase === 'processing' || phase === 'result', active: phase === 'liveness' },
+    { id: 'center', label: 'Align face', completed: phase !== 'scanning', active: phase === 'scanning' },
+    { id: 'challenge', label: getChallengeLabel(), completed: phase === 'processing' || phase === 'result', active: phase === 'liveness' },
     { id: 'done', label: 'Processing...', completed: phase === 'result', active: phase === 'processing' },
   ];
 
@@ -388,17 +454,17 @@ export const AuthScreen: React.FC = () => {
       {/* Full-Screen Camera — hidden when result is showing to prevent native view occlusion */}
       {phase !== 'result' && (
         <View
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
           onLayout={({ nativeEvent: { layout: { width, height } } }) => {
             if (width > 0 && height > 0) setCameraDimensions({ width, height });
           }}
         >
           <CameraView
             ref={cameraRef}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
             mode="auth"
             cameraPosition={cameraPosition}
-            isActive={phase !== 'result'}
+            isActive={true}
           />
         </View>
       )}
@@ -432,6 +498,17 @@ export const AuthScreen: React.FC = () => {
                 ⏱ {timeRemaining}s
               </Text>
             </Animated.View>
+          )}
+
+          {(phase === 'scanning' || phase === 'liveness' || phase === 'processing') && (
+            <TouchableOpacity
+              testID="auth-hud-toggle"
+              style={[styles.cameraToggleButton, { width: 44 }]}
+              onPress={() => setShowHUD(prev => !prev)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.cameraToggleText}>{showHUD ? '📊' : '🔧'}</Text>
+            </TouchableOpacity>
           )}
 
           <TouchableOpacity
@@ -489,19 +566,73 @@ export const AuthScreen: React.FC = () => {
             <LivenessGuide
               testID="auth-liveness-guide"
               currentDirection={phase === 'liveness' ? 'blink' : undefined}
-              instruction={
-                phase === 'scanning'
-                  ? 'Detecting face...'
-                  : phase === 'liveness'
-                    ? 'Blink naturally to verify'
-                    : 'Verifying identity...'
-              }
+              instruction={getChallengeInstruction()}
               steps={livenessSteps}
               progress={livenessProgress}
             />
           </Animated.View>
         )}
       </View>
+
+      {showHUD && (phase === 'scanning' || phase === 'liveness' || phase === 'processing') && (
+        <Animated.View entering={FadeIn.duration(300)} style={[styles.hudContainer, { top: insets.top + 60 }]}>
+          <Text style={styles.hudTitle}>BIOMETRIC TELEMETRY HUD</Text>
+          
+          <View style={styles.hudRow}>
+            <Text style={styles.hudLabel}>YAW (L/R):</Text>
+            <Text style={[styles.hudValue, Math.abs(hudPose?.yaw || 0) > 12 ? styles.hudActive : styles.hudNeutral]}>
+              {hudPose ? `${hudPose.yaw.toFixed(1)}°` : '—'}
+            </Text>
+          </View>
+          
+          <View style={styles.hudRow}>
+            <Text style={styles.hudLabel}>PITCH (U/D):</Text>
+            <Text style={[styles.hudValue, Math.abs(hudPose?.pitch || 0) > 10 ? styles.hudActive : styles.hudNeutral]}>
+              {hudPose ? `${hudPose.pitch.toFixed(1)}°` : '—'}
+            </Text>
+          </View>
+          
+          <View style={styles.hudRow}>
+            <Text style={styles.hudLabel}>ROLL (TILT):</Text>
+            <Text style={styles.hudValue}>
+              {hudPose ? `${hudPose.roll.toFixed(1)}°` : '—'}
+            </Text>
+          </View>
+          
+          <View style={styles.hudDivider} />
+          
+          <View style={styles.hudRow}>
+            <Text style={styles.hudLabel}>JITTER VARIANCE:</Text>
+            <Text style={styles.hudValue}>
+              {hudJitter ? `${hudJitter.toFixed(4)} px` : '0.0000'}
+            </Text>
+          </View>
+
+          <View style={styles.hudRow}>
+            <Text style={styles.hudLabel}>POSE VARIANCE:</Text>
+            <Text style={[styles.hudValue, hudPoseVariance < 0.0045 && hudFrameCount >= 12 ? { color: '#FF3D00' } : styles.hudNeutral]}>
+              {hudPoseVariance ? `${hudPoseVariance.toFixed(6)}` : '0.000000'}
+            </Text>
+          </View>
+
+          <View style={styles.hudRow}>
+            <Text style={styles.hudLabel}>FRAME BUFFER:</Text>
+            <Text style={styles.hudValue}>{hudFrameCount} / 30</Text>
+          </View>
+
+          <View style={styles.hudRow}>
+            <Text style={styles.hudLabel}>CHALLENGE MATCH:</Text>
+            <Text style={[styles.hudValue, hudChallengeScore >= 0.8 ? styles.hudActive : styles.hudNeutral]}>
+              {(hudChallengeScore * 100).toFixed(0)}%
+            </Text>
+          </View>
+          
+          <View style={styles.hudRow}>
+            <Text style={styles.hudLabel}>TARGET CHALLENGE:</Text>
+            <Text style={styles.hudTarget}>{currentChallenge.toUpperCase()}</Text>
+          </View>
+        </Animated.View>
+      )}
 
       {result && (
         <MatchResult
@@ -616,6 +747,59 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: Spacing.sm,
     marginBottom: Spacing.md,
+  },
+  hudContainer: {
+    position: 'absolute',
+    left: Spacing.xl,
+    right: Spacing.xl,
+    backgroundColor: 'rgba(5, 15, 30, 0.90)',
+    borderWidth: 1.5,
+    borderColor: '#00E676',
+    borderRadius: Radii.md,
+    padding: Spacing.md,
+    zIndex: 90,
+    ...Shadows.md,
+    elevation: 90,
+  },
+  hudTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#00E676',
+    letterSpacing: 1.5,
+    textAlign: 'center',
+    marginBottom: Spacing.sm,
+  },
+  hudRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginVertical: 2,
+  },
+  hudLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: Colors.textDisabled,
+    letterSpacing: 0.5,
+  },
+  hudValue: {
+    fontSize: 10,
+    fontWeight: '700',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  hudNeutral: {
+    color: Colors.white,
+  },
+  hudActive: {
+    color: '#00E676',
+  },
+  hudTarget: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: Colors.saffron,
+  },
+  hudDivider: {
+    height: 1,
+    backgroundColor: 'rgba(0, 230, 118, 0.2)',
+    marginVertical: Spacing.xs,
   },
 });
 

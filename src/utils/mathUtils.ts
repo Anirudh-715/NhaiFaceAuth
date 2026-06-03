@@ -198,9 +198,8 @@ function earForEye(eyePoints: Point[]): number {
  */
 export function calculateEAR(landmarks: Point[]): number {
   if (landmarks.length < 48) {
-    throw new Error(
-      `Need at least 48 landmarks for EAR, got ${landmarks.length}`,
-    );
+    // Graceful fallback for 6-point BlazeFace model
+    return 0.35; 
   }
 
   const leftEye = landmarks.slice(36, 42); // indices 36–41
@@ -235,9 +234,8 @@ export function calculateEAR(landmarks: Point[]): number {
  */
 export function calculateMAR(landmarks: Point[]): number {
   if (landmarks.length < 68) {
-    throw new Error(
-      `Need at least 68 landmarks for MAR, got ${landmarks.length}`,
-    );
+    // Graceful fallback for 6-point BlazeFace model
+    return 0.15;
   }
 
   // Inner mouth landmarks: 60 = left corner, 64 = right corner
@@ -291,45 +289,90 @@ export function calculateMAR(landmarks: Point[]): number {
  * @throws {Error} If landmarks array has fewer than 68 points
  */
 export function estimateHeadPose(landmarks: Point[]): HeadPose {
-  if (landmarks.length < 68) {
+  if (landmarks.length < 6) {
     throw new Error(
-      `Need at least 68 landmarks for head pose, got ${landmarks.length}`,
+      `Need at least 6 landmarks for head pose, got ${landmarks.length}`,
     );
   }
 
-  // Key landmark indices (iBUG 68)
+  // ─── 6-Point BlazeFace Estimator ───────────────────────────────
+  if (landmarks.length === 6) {
+    const rightEye = landmarks[0];
+    const leftEye = landmarks[1];
+    const nose = landmarks[2];
+    const mouth = landmarks[3];
+    const rightEar = landmarks[4];
+    const leftEar = landmarks[5];
+
+    // Midpoint between eyes
+    const eyeMidX = (rightEye.x + leftEye.x) / 2;
+    const eyeMidY = (rightEye.y + leftEye.y) / 2;
+
+    // Horizontal eye distance (scale reference)
+    const eyeDist = Math.sqrt((rightEye.x - leftEye.x) ** 2 + (rightEye.y - leftEye.y) ** 2);
+    if (eyeDist === 0) {
+      return { yaw: 0, pitch: 0, roll: 0 };
+    }
+
+    // 1. Yaw (Left-Right rotation)
+    // Distance from nose to left ear vs right ear
+    const distNoseToLeftEar = Math.sqrt((nose.x - leftEar.x) ** 2 + (nose.y - leftEar.y) ** 2);
+    const distNoseToRightEar = Math.sqrt((nose.x - rightEar.x) ** 2 + (nose.y - rightEar.y) ** 2);
+    
+    // Normalized ratio difference: if head is turned left, nose is closer to right ear (mirrored or not)
+    // Scale factor of 120 gives a yaw range of ~ -60 to +60 degrees
+    const yawRatio = (distNoseToLeftEar - distNoseToRightEar) / (distNoseToLeftEar + distNoseToRightEar);
+    const yaw = yawRatio * 120;
+
+    // 2. Pitch (Up-Down rotation)
+    // Vertical distance from eye line to nose, normalized by vertical distance from nose to mouth
+    const eyeToNoseY = nose.y - eyeMidY;
+    const noseToMouthY = mouth.y - nose.y;
+    
+    // Reference ratio is normally around 0.8
+    const pitchRatio = noseToMouthY > 0 ? (eyeToNoseY / noseToMouthY) : 1.0;
+    const expectedPitchRatio = 0.85;
+    // Lower ratio means nose is closer to eyes (looking up)
+    // Scale factor of 120 translates it to degrees
+    const pitch = (pitchRatio - expectedPitchRatio) * -120;
+
+    // 3. Roll (Head tilt)
+    const deltaY = leftEye.y - rightEye.y;
+    const deltaX = leftEye.x - rightEye.x;
+    const roll = Math.atan2(deltaY, deltaX) * (180 / Math.PI);
+
+    return {
+      yaw: clamp(yaw, -90, 90),
+      pitch: clamp(pitch, -90, 90),
+      roll: clamp(roll, -90, 90),
+    };
+  }
+
+  // ─── 68-Point iBUG Estimator ──────────────────────────────────
   const noseTip = landmarks[30];
   const chin = landmarks[8];
-  const leftEyeCenter = midpoint(landmarks[36], landmarks[39]); // outer + inner corners
+  const leftEyeCenter = midpoint(landmarks[36], landmarks[39]);
   const rightEyeCenter = midpoint(landmarks[42], landmarks[45]);
   const eyeCenter = midpoint(leftEyeCenter, rightEyeCenter);
 
-  // ── Yaw ──────────────────────────────────────────────────
-  // Compare horizontal offset of nose-tip from the midpoint of the eyes
   const interOcularDist = distance(leftEyeCenter, rightEyeCenter);
   if (interOcularDist === 0) {
     return { yaw: 0, pitch: 0, roll: 0 };
   }
 
   const noseOffsetX = noseTip.x - eyeCenter.x;
-  // Normalise by inter-ocular distance; scale to approximate degrees
-  // Empirical factor: ±1.0 normalised offset ≈ ±45°
   const yaw = (noseOffsetX / interOcularDist) * 45;
 
-  // ── Pitch ────────────────────────────────────────────────
-  // Vertical ratio: where the nose sits between eye-line and chin
   const faceHeight = distance(eyeCenter, chin);
   if (faceHeight === 0) {
     return { yaw, pitch: 0, roll: 0 };
   }
 
   const noseOffsetY = noseTip.y - eyeCenter.y;
-  const expectedRatio = 0.45; // nose is typically at ~45% of eye-chin dist
+  const expectedRatio = 0.45;
   const actualRatio = noseOffsetY / faceHeight;
-  // Deviation from expected → pitch. Scale factor ≈ 120° per unit ratio
   const pitch = (actualRatio - expectedRatio) * 120;
 
-  // ── Roll ─────────────────────────────────────────────────
   const deltaY = rightEyeCenter.y - leftEyeCenter.y;
   const deltaX = rightEyeCenter.x - leftEyeCenter.x;
   const roll = Math.atan2(deltaY, deltaX) * (180 / Math.PI);

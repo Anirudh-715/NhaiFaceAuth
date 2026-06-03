@@ -9,6 +9,9 @@
 
 import { NativeModules, Platform } from 'react-native';
 
+declare const btoa: any;
+declare const Buffer: any;
+
 // ─────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────

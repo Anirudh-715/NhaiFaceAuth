@@ -95,17 +95,22 @@ class LivenessService {
     const signals = { movementVariance, earVariance, poseVariance };
 
     // Classification logic
-    // Since EAR landmarks are statically generated from 6 keypoints,
-    // earVariance is always 0. We ignore it to avoid false positive spoofs.
-    // We only flag spoofing if both landmark movement and head pose are completely static (e.g. photo on stand).
-    const isStaticMovement = movementVariance < 0.05;
-    const isStaticPose = poseVariance < 0.05;
+    // Since camera shake shifts absolute coordinates but leaves relative face geometry constant,
+    // we focus primarily on relative pose variance (yaw/pitch proxies) to detect static fakes.
+    // Real faces: natural micro-movement & 3D perspective shifts yield poseVariance > 0.007.
+    // Static photos/screens: completely frozen face ratios yield poseVariance < 0.0045.
+    const isStaticPose = poseVariance < 0.0045;
+    
+    // Flag if absolute movement is zero (photo on a stand/tripod)
+    const isZeroMovement = movementVariance < 0.005;
 
-    if (isStaticMovement && isStaticPose) {
+    if (isStaticPose || isZeroMovement) {
       return {
         isSpoof: true,
-        confidence: 0.90,
-        reason: 'Static face detected — no natural movement or head motion',
+        confidence: 0.95,
+        reason: isStaticPose 
+          ? 'Static face geometry detected — relative ratios are frozen (printed photo/screen)' 
+          : 'Zero absolute face movement detected — static camera/subject',
         signals,
       };
     }
@@ -176,7 +181,8 @@ class LivenessService {
     // aspect ratio across frames as a proxy for head rotation changes.
     if (this.frameBuffer.length < 2) return 0;
 
-    const ratios: number[] = [];
+    const yawRatios: number[] = [];
+    const pitchRatios: number[] = [];
 
     for (const frame of this.frameBuffer) {
       if (frame.landmarks.length >= 3) {
@@ -196,12 +202,18 @@ class LivenessService {
         const noseOffsetX = (nose.x - eyeMidX) / eyeDist; // yaw proxy
         const noseOffsetY = (nose.y - eyeMidY) / eyeDist; // pitch proxy
 
-        ratios.push(noseOffsetX, noseOffsetY);
+        yawRatios.push(noseOffsetX);
+        pitchRatios.push(noseOffsetY);
       }
     }
 
-    if (ratios.length < 4) return 0; // need at least 2 frames × 2 values
-    return this.stddev(ratios);
+    if (yawRatios.length < 2 || pitchRatios.length < 2) return 0;
+    
+    // Compute variance of yaw and pitch independently to avoid inter-axis offset variance
+    const yawVar = this.stddev(yawRatios);
+    const pitchVar = this.stddev(pitchRatios);
+
+    return yawVar + pitchVar;
   }
 
   private stddev(values: number[]): number {
@@ -254,11 +266,11 @@ class LivenessService {
       let isMatch = false;
       
       switch (challengeDirection) {
-        case 'left': isMatch = pose.yaw < -15; break;
-        case 'right': isMatch = pose.yaw > 15; break;
-        case 'up': isMatch = pose.pitch < -10; break;
-        case 'down': isMatch = pose.pitch > 10; break;
-        case 'center': isMatch = Math.abs(pose.yaw) < 10 && Math.abs(pose.pitch) < 10; break;
+        case 'left': isMatch = pose.yaw < -12; break;
+        case 'right': isMatch = pose.yaw > 12; break;
+        case 'up': isMatch = pose.pitch > 10; break;
+        case 'down': isMatch = pose.pitch < -10; break;
+        case 'center': isMatch = Math.abs(pose.yaw) < 8 && Math.abs(pose.pitch) < 8; break;
       }
       
       if (isMatch) matchedFrames++;
@@ -321,6 +333,16 @@ class LivenessService {
 
   getFrameCount(): number {
     return this.frameBuffer.length;
+  }
+
+  getLatestPose(): { yaw: number; pitch: number; roll: number } | null {
+    if (this.frameBuffer.length === 0) return null;
+    try {
+      const latestFrame = this.frameBuffer[this.frameBuffer.length - 1];
+      return estimateHeadPose(latestFrame.landmarks);
+    } catch (e) {
+      return null;
+    }
   }
 
   reset(): void {

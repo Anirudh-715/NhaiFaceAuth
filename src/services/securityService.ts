@@ -23,6 +23,10 @@ import {
   type AesGcmEncryptResult,
 } from '../modules/CryptoManager';
 
+declare const btoa: any;
+declare const atob: any;
+declare const Buffer: any;
+
 // ─────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────
