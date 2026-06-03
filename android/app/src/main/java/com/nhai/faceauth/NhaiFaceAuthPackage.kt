@@ -10,6 +10,7 @@ import com.nhai.faceauth.crypto.CryptoModule
 import com.nhai.faceauth.ml.FaceDetectorModule
 import com.nhai.faceauth.ml.FaceRecognizerModule
 import com.nhai.faceauth.ml.LivenessModule
+import com.nhai.faceauth.sound.SoundPlayerModule
 
 /**
  * NhaiFaceAuthPackage — React Native package that registers all native modules
@@ -36,7 +37,8 @@ class NhaiFaceAuthPackage : ReactPackage {
             FaceDetectorModule(reactContext),
             FaceRecognizerModule(reactContext),
             LivenessModule(reactContext),
-            CryptoModule(reactContext)
+            CryptoModule(reactContext),
+            SoundPlayerModule(reactContext)
         )
     }
 

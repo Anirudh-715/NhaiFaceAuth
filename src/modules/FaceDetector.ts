@@ -352,6 +352,9 @@ export async function detect(
   const keypoints = primaryFace.keypoints || [];
   const landmarks = mapKeypointsTo68Landmarks(bbox, keypoints);
 
+  // Store raw 6-point keypoints for liveness analysis (real variance data)
+  const rawKeypoints = keypoints.map((k: any) => ({ x: k.x, y: k.y }));
+
   return {
     detected: true,
     faceCount: nativeDetections.length,
@@ -360,6 +363,7 @@ export async function detect(
     landmarks,
     confidence: primaryFace.confidence || 0.9,
     inferenceTimeMs: 15,
+    _rawKeypoints: rawKeypoints,
   };
 }
 

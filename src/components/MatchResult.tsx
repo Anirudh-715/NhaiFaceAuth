@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Modal } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -22,6 +22,8 @@ interface MatchResultProps {
   confidence?: number;
   timeTaken?: number;
   errorMessage?: string;
+  isSpoof?: boolean;
+  isTimeout?: boolean;
   onRetry?: () => void;
   onDismiss?: () => void;
   testID?: string;
@@ -34,6 +36,8 @@ export const MatchResult: React.FC<MatchResultProps> = ({
   confidence,
   timeTaken,
   errorMessage,
+  isSpoof,
+  isTimeout,
   onRetry,
   onDismiss,
   testID,
@@ -55,21 +59,40 @@ export const MatchResult: React.FC<MatchResultProps> = ({
 
   if (!visible) return null;
 
-  const statusColor = success ? Colors.success : Colors.error;
-  const statusBg = success ? Colors.successLight : Colors.errorLight;
+  // Determine status colors based on result type
+  const statusColor = success
+    ? Colors.success
+    : isSpoof
+      ? '#E07A00'  // Saffron orange for spoof warnings
+      : isTimeout
+        ? Colors.navy  // Navy for timeout
+        : Colors.error;
+  const statusBg = success
+    ? Colors.successLight
+    : isSpoof
+      ? '#FFF3E0'  // Light orange background
+      : isTimeout
+        ? '#E3F2FD'  // Light blue background
+        : Colors.errorLight;
 
   return (
-    <Animated.View
-      testID={testID}
-      entering={FadeIn.duration(300)}
-      style={[
-        styles.backdrop,
-        {
-          paddingTop: insets.top + Spacing.lg,
-          paddingBottom: insets.bottom + Spacing.lg,
-        },
-      ]}
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
     >
+      <Animated.View
+        testID={testID}
+        entering={FadeIn.duration(300)}
+        style={[
+          styles.backdrop,
+          {
+            paddingTop: insets.top + Spacing.lg,
+            paddingBottom: insets.bottom + Spacing.lg,
+          },
+        ]}
+      >
       <View style={styles.card}>
         {/* Icon Circle */}
         <View style={styles.iconWrapper}>
@@ -84,7 +107,7 @@ export const MatchResult: React.FC<MatchResultProps> = ({
             ]}
           >
             <Text style={[styles.iconText, { color: statusColor }]}>
-              {success ? '✓' : '✕'}
+              {success ? '✓' : isSpoof ? '⚠' : isTimeout ? '⏱' : '✕'}
             </Text>
           </Animated.View>
         </View>
@@ -94,7 +117,13 @@ export const MatchResult: React.FC<MatchResultProps> = ({
           entering={FadeInUp.delay(200).duration(400)}
           style={[styles.resultTitle, { color: statusColor }]}
         >
-          {success ? 'Identity Verified' : 'Verification Failed'}
+          {success
+            ? 'Identity Verified'
+            : isSpoof
+              ? 'Spoof Detected'
+              : isTimeout
+                ? 'Session Timed Out'
+                : 'Verification Failed'}
         </Animated.Text>
 
         {/* User Name */}
@@ -167,7 +196,8 @@ export const MatchResult: React.FC<MatchResultProps> = ({
           )}
         </Animated.View>
       </View>
-    </Animated.View>
+      </Animated.View>
+    </Modal>
   );
 };
 
@@ -178,6 +208,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 100,
+    elevation: 100,
   },
   card: {
     width: '85%',

@@ -115,6 +115,32 @@ export const BLINK_CONSEC_FRAMES = 2;
 export const HEAD_POSE_TOLERANCE_DEG = 15;
 
 // ─────────────────────────────────────────────────────────────
+// Anti-Spoofing Configuration
+// ─────────────────────────────────────────────────────────────
+
+/** Minimum landmark movement variance (px) to consider a face "live" */
+export const SPOOF_MOVEMENT_VARIANCE_MIN = 0.5;
+
+/** Minimum EAR temporal variance to consider eyes "live" */
+export const SPOOF_EAR_VARIANCE_MIN = 0.005;
+
+/** Minimum frames needed before spoof check can run */
+export const SPOOF_MIN_FRAMES = 8;
+
+// ─────────────────────────────────────────────────────────────
+// Authentication Session Configuration
+// ─────────────────────────────────────────────────────────────
+
+/** Authentication session timeout in milliseconds (60s) */
+export const AUTH_TIMEOUT_MS = 60_000;
+
+/** Maximum failed auth attempts before lockout */
+export const MAX_AUTH_ATTEMPTS = 3;
+
+/** Lockout duration in milliseconds (60s) */
+export const AUTH_LOCKOUT_MS = 60_000;
+
+// ─────────────────────────────────────────────────────────────
 // Sync Engine Configuration
 // ─────────────────────────────────────────────────────────────
 

@@ -23,6 +23,8 @@ import { GradientButton } from '../components/GradientButton';
 import { SyncIndicator } from '../components/SyncIndicator';
 import { useSyncStore } from '../store/syncStore';
 import { syncEngine } from '../services/syncEngine';
+import { useSettingsStore } from '../store/settingsStore';
+import { triggerFeedback } from '../utils/feedbackHelper';
 
 interface SettingRowProps {
   label: string;
@@ -57,8 +59,23 @@ const SettingRow: React.FC<SettingRowProps> = ({
 
 export const SettingsScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
-  const [hapticEnabled, setHapticEnabled] = useState(true);
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  const { hapticEnabled, soundEnabled, setHapticEnabled, setSoundEnabled } = useSettingsStore();
+
+  const handleToggleHaptic = useCallback(async (value: boolean) => {
+    await setHapticEnabled(value);
+    if (value) {
+      // Trigger a light preview tap
+      triggerFeedback.click();
+    }
+  }, [setHapticEnabled]);
+
+  const handleToggleSound = useCallback(async (value: boolean) => {
+    await setSoundEnabled(value);
+    if (value) {
+      // Trigger a preview sound/haptic click
+      triggerFeedback.click();
+    }
+  }, [setSoundEnabled]);
 
   // Real sync state from store
   const { isSyncing, pendingCount, lastSyncTime } = useSyncStore();
@@ -133,14 +150,14 @@ export const SettingsScreen: React.FC = () => {
               testID="settings-haptic-toggle"
               label="Haptic Feedback"
               toggle={hapticEnabled}
-              onToggle={setHapticEnabled}
+              onToggle={handleToggleHaptic}
             />
             <View style={styles.rowDivider} />
             <SettingRow
               testID="settings-sound-toggle"
               label="Sound Effects"
               toggle={soundEnabled}
-              onToggle={setSoundEnabled}
+              onToggle={handleToggleSound}
             />
           </GlassCard>
         </Animated.View>

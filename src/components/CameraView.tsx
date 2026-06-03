@@ -1,10 +1,11 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission, usePhotoOutput } from 'react-native-vision-camera';
 import { Colors } from '../theme';
 
 interface CameraViewProps {
   mode: 'enroll' | 'auth';
+  cameraPosition?: 'front' | 'back';
   onFaceDetected?: (face: any) => void;
   onLivenessResult?: (result: any) => void;
   onEmbeddingExtracted?: (embedding: number[]) => void;
@@ -18,6 +19,7 @@ export interface CameraViewRef {
 
 export const CameraView = React.forwardRef<CameraViewRef, CameraViewProps>(({
   mode,
+  cameraPosition = 'front',
   onFaceDetected,
   onLivenessResult,
   onEmbeddingExtracted,
@@ -25,32 +27,34 @@ export const CameraView = React.forwardRef<CameraViewRef, CameraViewProps>(({
   style
 }, ref) => {
   const cameraRef = useRef<Camera>(null);
-  const frontDevice = useCameraDevice('front');
-  const backDevice = useCameraDevice('back');
-  const device = frontDevice ?? backDevice;
+  const device = useCameraDevice(cameraPosition);
   const { hasPermission, requestPermission } = useCameraPermission();
   const photoOutput = usePhotoOutput();
-
-  console.log('[CameraView] Render - device:', device?.id, 'hasPermission:', hasPermission, 'isActive:', isActive);
+  const [isReady, setIsReady] = useState(false);
 
   React.useImperativeHandle(ref, () => ({
     takePhoto: async () => {
       try {
-        if (photoOutput) {
-          const result = await photoOutput.capturePhotoToFile({
-            flashMode: 'off',
-            enableShutterSound: false,
-          }, {});
-          console.log('[CameraView] capturePhotoToFile result:', result);
-          return result.filePath;
+        if (!photoOutput) {
+          console.warn('[CameraView] photoOutput is null');
+          return null;
         }
-        return null;
-      } catch (err) {
-        console.error('[CameraView] takePhoto error:', err);
+        if (!isReady) {
+          console.warn('[CameraView] Camera not ready yet');
+          return null;
+        }
+        const result = await photoOutput.capturePhotoToFile({
+          flashMode: 'off',
+          enableShutterSound: false,
+        }, {});
+        return result.filePath;
+      } catch (err: any) {
+        // Log but don't crash — frame loop will retry
+        console.warn('[CameraView] takePhoto error:', err?.message || err);
         return null;
       }
     }
-  }));
+  }), [photoOutput, isReady]);
 
   React.useEffect(() => {
     if (!hasPermission) {
@@ -90,6 +94,17 @@ export const CameraView = React.forwardRef<CameraViewRef, CameraViewProps>(({
         isActive={isActive}
         outputs={[photoOutput]}
         resizeMode="cover"
+        onStarted={() => {
+          console.log('[CameraView] Camera started');
+          setIsReady(true);
+        }}
+        onStopped={() => {
+          console.log('[CameraView] Camera stopped');
+          setIsReady(false);
+        }}
+        onError={(error) => {
+          console.error('[CameraView] Camera error:', error);
+        }}
       />
     </View>
   );

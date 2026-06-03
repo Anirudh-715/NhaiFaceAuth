@@ -97,6 +97,13 @@ class EmbeddingDB {
         )
       `);
       
+      this.db.execute(`
+        CREATE TABLE IF NOT EXISTS settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        )
+      `);
+      
     } catch (error) {
       console.error('Failed to initialize database', error);
       throw error;
@@ -342,6 +349,29 @@ class EmbeddingDB {
     } catch (error) {
       console.error('Failed to get stats', error);
       throw error;
+    }
+  }
+
+  async getSetting(key: string, defaultValue: string): Promise<string> {
+    if (!this.db) return defaultValue;
+    try {
+      const { rows } = this.db.execute('SELECT value FROM settings WHERE key = ?', [key]);
+      if (rows && rows.length > 0) {
+        return rows.item(0).value;
+      }
+      return defaultValue;
+    } catch (e) {
+      console.error(`getSetting failed for ${key}`, e);
+      return defaultValue;
+    }
+  }
+
+  async setSetting(key: string, value: string): Promise<void> {
+    if (!this.db) return;
+    try {
+      this.db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [key, value]);
+    } catch (e) {
+      console.error(`setSetting failed for ${key} to ${value}`, e);
     }
   }
 }

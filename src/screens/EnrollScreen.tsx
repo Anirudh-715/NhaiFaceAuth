@@ -34,6 +34,7 @@ import { embeddingDB } from '../services/embeddingDB';
 import * as FaceDetector from '../modules/FaceDetector';
 import * as FaceRecognizer from '../modules/FaceRecognizer';
 import { CameraViewRef } from '../components/CameraView';
+import { triggerFeedback } from '../utils/feedbackHelper';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CAMERA_HEIGHT = SCREEN_WIDTH * 1.4;
@@ -58,10 +59,6 @@ export const EnrollScreen: React.FC = () => {
     width: SCREEN_WIDTH,
     height: CAMERA_HEIGHT,
   });
-  const [detectedFace, setDetectedFace] = useState<{
-    bbox: any;
-    landmarks: any[];
-  } | null>(null);
 
   const cameraRef = useRef<CameraViewRef>(null);
   const scrollViewRef = useRef<ScrollView>(null);
@@ -74,10 +71,11 @@ export const EnrollScreen: React.FC = () => {
 
   const handleStartEnrollment = useCallback(async () => {
     if (!name.trim()) return;
+    triggerFeedback.click();
     setIsEnrolling(true);
     setCurrentStep(1);
     setProgress(0);
-    setDetectedFace(null);
+
 
     try {
       const photoPath = await cameraRef.current?.takePhoto();
@@ -87,18 +85,17 @@ export const EnrollScreen: React.FC = () => {
 
       setProgress(0.33);
       setCurrentStep(2);
+      triggerFeedback.tick();
 
       const detectResult = await FaceDetector.detect(photoPath, cameraDimensions.width, cameraDimensions.height);
       if (!detectResult.detected || !detectResult.bbox) {
         throw new Error('No face detected. Please ensure your face is fully visible.');
       }
 
-      setDetectedFace({
-        bbox: detectResult.bbox,
-        landmarks: detectResult.landmarks || []
-      });
+
 
       setProgress(0.66);
+      triggerFeedback.tick();
 
       const recognizerResult = await FaceRecognizer.extractEmbedding(
         photoPath,
@@ -116,17 +113,20 @@ export const EnrollScreen: React.FC = () => {
       setProgress(1.0);
       setCurrentStep(3);
       setIsEnrolling(false);
+      triggerFeedback.success();
       setResultModal('success');
     } catch (err: any) {
       console.error('[Enroll] Enrollment error:', err);
       setIsEnrolling(false);
+      triggerFeedback.error();
       setResultModal('failure');
     }
   }, [name, cameraDimensions]);
 
   const handleDismissResult = useCallback(() => {
+    triggerFeedback.click();
     setResultModal(null);
-    setDetectedFace(null);
+
     if (resultModal === 'success') {
       navigation.goBack();
     }
@@ -170,8 +170,6 @@ export const EnrollScreen: React.FC = () => {
             />
             <FaceOverlay 
               faceDetected={isEnrolling && currentStep >= 1} 
-              boundingBox={detectedFace?.bbox}
-              landmarks={detectedFace?.landmarks}
               ovalWidth={SCREEN_WIDTH * 0.65}
             />
           </View>
@@ -453,9 +451,9 @@ const styles = StyleSheet.create({
     marginLeft: Spacing.xs,
   },
   inputWrapper: {
-    backgroundColor: Colors.bgPrimary,
-    borderWidth: 1,
-    borderColor: Colors.cardBorder,
+    backgroundColor: Colors.bgSecondary,
+    borderWidth: 1.5,
+    borderColor: Colors.navy,
     borderRadius: Radii.md,
     overflow: 'hidden',
   },
@@ -463,8 +461,8 @@ const styles = StyleSheet.create({
     height: 46,
     paddingHorizontal: Spacing.lg,
     color: Colors.textPrimary,
-    fontSize: 14,
-    fontWeight: '500',
+    fontSize: 15,
+    fontWeight: '600',
   },
   // Button
   buttonContainer: {
